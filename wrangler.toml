@@ -1,0 +1,13 @@
+name = "global-holidays"
+main = "src/worker.js"
+compatibility_date = "2024-09-23"
+
+# Static frontend (public/index.html, css, js, icons) served via the
+# ASSETS binding used in src/worker.js. Cloudflare will build/deploy this
+# straight from the repo when connected via GitHub sync.
+[assets]
+directory = "public"
+binding = "ASSETS"
+
+[observability]
+enabled = true
