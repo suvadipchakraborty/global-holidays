@@ -62,11 +62,30 @@ function parseCSV(text) {
  * break the app: Date, Holiday Name, Description, Country, Type.
  */
 function rowsToHolidays(rows) {
-  if (!rows.length) return [];
+  return analyzeCSV(rows).holidays;
+}
 
-  // Defensive normalize: trim, lowercase, and strip any stray BOM/invisible
-  // characters that can survive a copy-paste into a header cell.
-  const header = rows[0].map((h) =>
+/**
+ * Same parsing as rowsToHolidays, but also returns a diagnostic report:
+ * which header row we saw, which column each field matched to (or -1 if
+ * unmatched), how many data rows existed vs. how many actually turned
+ * into a holiday, and a sample of rejected rows with the reason. Used to
+ * render an on-screen diagnostics panel when nothing loads, so the
+ * problem is visible without needing devtools.
+ */
+function analyzeCSV(rows) {
+  if (!rows.length) {
+    return {
+      holidays: [],
+      header: [],
+      columns: { dateIdx: -1, nameIdx: -1, descIdx: -1, countryIdx: -1, typeIdx: -1 },
+      totalDataRows: 0,
+      rejectedSample: [],
+    };
+  }
+
+  const rawHeader = rows[0];
+  const header = rawHeader.map((h) =>
     h.replace(/[\uFEFF\u200B]/g, "").trim().toLowerCase()
   );
 
@@ -83,14 +102,29 @@ function rowsToHolidays(rows) {
   const typeIdx = findCol(["type", "categor"]);
 
   const holidays = [];
+  const rejectedSample = [];
+  let totalDataRows = 0;
 
   for (let i = 1; i < rows.length; i++) {
     const cols = rows[i];
     if (!cols || cols.every((c) => !c || !c.trim())) continue;
+    totalDataRows++;
 
     const rawDate = dateIdx >= 0 ? (cols[dateIdx] || "").trim() : "";
     const iso = parseFlexibleDate(rawDate);
-    if (!iso) continue;
+
+    if (!iso) {
+      if (rejectedSample.length < 5) {
+        rejectedSample.push({
+          row: cols,
+          reason:
+            dateIdx < 0
+              ? "No column looked like a Date column at all."
+              : `Couldn't parse "${rawDate}" as a date.`,
+        });
+      }
+      continue;
+    }
 
     holidays.push({
       dateISO: iso,
@@ -101,7 +135,13 @@ function rowsToHolidays(rows) {
     });
   }
 
-  return holidays;
+  return {
+    holidays,
+    header: rawHeader,
+    columns: { dateIdx, nameIdx, descIdx, countryIdx, typeIdx },
+    totalDataRows,
+    rejectedSample,
+  };
 }
 
 /**

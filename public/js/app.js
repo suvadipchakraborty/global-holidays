@@ -84,39 +84,83 @@
   /* ---------------------------------------------------------------- */
 
   async function loadHolidays() {
+    const attempts = [];
     let text = null;
+    let sourceLabel = null;
+
     try {
       const res = await fetch(WORKER_ENDPOINT, { cache: "no-store" });
-      if (res.ok) text = await res.text();
-    } catch (_) {
-      /* worker route unavailable (e.g. static-only preview) — fall through */
+      const body = res.ok ? await res.text() : await res.text().catch(() => "");
+      attempts.push({
+        label: "Worker proxy (/api/holidays)",
+        url: WORKER_ENDPOINT,
+        ok: res.ok,
+        status: res.status,
+        length: body.length,
+        preview: body.slice(0, 300),
+      });
+      if (res.ok && body) {
+        text = body;
+        sourceLabel = "Worker proxy (/api/holidays)";
+      }
+    } catch (err) {
+      attempts.push({
+        label: "Worker proxy (/api/holidays)",
+        url: WORKER_ENDPOINT,
+        ok: false,
+        status: "network error",
+        length: 0,
+        preview: String(err && err.message ? err.message : err),
+      });
     }
 
     if (!text) {
       try {
         const res = await fetch(DIRECT_SHEET_URL, { cache: "no-store" });
-        if (res.ok) text = await res.text();
-      } catch (_) {
-        /* CORS or offline — handled below */
+        const body = res.ok ? await res.text() : await res.text().catch(() => "");
+        attempts.push({
+          label: "Direct Google Sheets fetch",
+          url: DIRECT_SHEET_URL,
+          ok: res.ok,
+          status: res.status,
+          length: body.length,
+          preview: body.slice(0, 300),
+        });
+        if (res.ok && body) {
+          text = body;
+          sourceLabel = "Direct Google Sheets fetch";
+        }
+      } catch (err) {
+        attempts.push({
+          label: "Direct Google Sheets fetch",
+          url: DIRECT_SHEET_URL,
+          ok: false,
+          status: "network error (likely CORS)",
+          length: 0,
+          preview: String(err && err.message ? err.message : err),
+        });
       }
     }
 
-    if (!text) throw new Error("Could not load holiday data.");
+    if (!text) {
+      const err = new Error("Could not load holiday data from either source.");
+      err.diagnostics = { attempts, sourceLabel: null };
+      throw err;
+    }
 
     const trimmed = text.trim();
     if (trimmed.startsWith("<!DOCTYPE") || trimmed.startsWith("<html")) {
-      throw new Error(
+      const err = new Error(
         "The data source returned a webpage instead of CSV data — the Google Sheet may not be published, or the link may have changed. In Google Sheets, check File → Share → Publish to web is still active for this sheet/tab."
       );
+      err.diagnostics = { attempts, sourceLabel };
+      throw err;
     }
 
-    console.info(
-      "[Cultural Compass] Loaded CSV, first 200 chars:",
-      trimmed.slice(0, 200)
-    );
-
     const rows = parseCSV(text);
-    return rowsToHolidays(rows);
+    const analysis = analyzeCSV(rows);
+    analysis.diagnostics = { attempts, sourceLabel };
+    return analysis;
   }
 
   function indexHolidays(list) {
@@ -686,23 +730,56 @@
   /* Init                                                               */
   /* ---------------------------------------------------------------- */
 
+  function renderDiagnostics(diag, extra = "") {
+    const attempts = (diag && diag.attempts) || [];
+    const attemptsHTML = attempts
+      .map(
+        (a) => `
+        <div class="diag-attempt">
+          <p><strong>${escapeHTML(a.label)}</strong> — status: ${escapeHTML(String(a.status))}, ${a.length} chars received</p>
+          <pre class="diag-pre">${escapeHTML(a.preview || "(empty)")}</pre>
+        </div>`
+      )
+      .join("");
+
+    return `
+      <details class="diag-block" open>
+        <summary>Diagnostics (what the app actually received)</summary>
+        ${extra ? `<p>${extra}</p>` : ""}
+        ${attemptsHTML || "<p>No fetch attempts were recorded.</p>"}
+      </details>`;
+  }
+
   async function init() {
     bindEvents();
     try {
-      const list = await loadHolidays();
+      const result = await loadHolidays();
+      const list = result.holidays;
       indexHolidays(list);
 
       if (!list.length) {
-        console.warn(
-          "[Cultural Compass] The CSV loaded but 0 holiday rows were recognized. " +
-          "Open the Network tab, inspect the /api/holidays response, and confirm " +
-          "it has Date / Holiday Name / Description / Country / Type columns " +
-          "(header names can vary, but each column needs a recognizable keyword)."
-        );
+        const cols = result.columns || {};
+        const colLine = (label, idx) =>
+          `${label}: ${idx >= 0 ? `matched column "${escapeHTML(result.header[idx] || "")}"` : "<strong>no matching column found</strong>"}`;
+
+        const rejectedHTML = (result.rejectedSample || [])
+          .map((r) => `<li>${escapeHTML(r.reason)} — row: ${escapeHTML(JSON.stringify(r.row))}</li>`)
+          .join("");
+
+        console.warn("[Cultural Compass] 0 holiday rows recognized.", result);
+
         el.splash.innerHTML = `
           <div class="splash-error">
-            <p>Connected to your calendar feed, but couldn't find any holiday rows in it.</p>
-            <p style="font-size:0.8rem;opacity:0.7;">This usually means the sheet's column headers don't match what the app expects (Date, Holiday Name, Description, Country, Type), or the published sheet is empty for this tab.</p>
+            <p>Connected, but couldn't turn the feed into any holidays.</p>
+            <p style="font-size:0.8rem;opacity:0.75;">
+              Header row seen: ${result.header && result.header.length ? escapeHTML(result.header.join(" | ")) : "(no header row found)"}<br/>
+              ${colLine("Date", cols.dateIdx)}<br/>
+              ${colLine("Name", cols.nameIdx)}<br/>
+              ${colLine("Country", cols.countryIdx)}<br/>
+              Data rows seen: ${result.totalDataRows || 0}
+            </p>
+            ${rejectedHTML ? `<details class="diag-block" open><summary>Why rows were skipped</summary><ul style="text-align:left;font-size:0.75rem;">${rejectedHTML}</ul></details>` : ""}
+            ${renderDiagnostics(result.diagnostics)}
             <button id="retry-btn" class="btn-primary">Try again</button>
           </div>`;
         $("#retry-btn").addEventListener("click", () => location.reload());
@@ -718,7 +795,8 @@
       el.splash.innerHTML = `
         <div class="splash-error">
           <p>We couldn't load the holiday calendar.</p>
-          <p style="font-size:0.8rem;opacity:0.7;">${escapeHTML(err && err.message ? err.message : "Unknown error")}</p>
+          <p style="font-size:0.8rem;opacity:0.75;">${escapeHTML(err && err.message ? err.message : "Unknown error")}</p>
+          ${renderDiagnostics(err && err.diagnostics)}
           <button id="retry-btn" class="btn-primary">Try again</button>
         </div>`;
       $("#retry-btn").addEventListener("click", () => location.reload());
