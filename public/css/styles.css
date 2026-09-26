@@ -606,6 +606,7 @@ main.view.is-active { display: block; }
   z-index: 100;
   display: flex; flex-direction: column;
   padding: 20px;
+  overflow-y: auto;
   transition: opacity 0.4s ease;
 }
 #splash.is-hidden { opacity: 0; pointer-events: none; }
@@ -625,6 +626,38 @@ main.view.is-active { display: block; }
 
 .splash-error {
   margin: auto; text-align: center; display: flex; flex-direction: column; gap: 14px; align-items: center;
+  max-width: 100%; overflow-y: auto; padding: 10px 4px;
+}
+
+.diag-block {
+  text-align: left;
+  width: 100%;
+  max-width: 420px;
+  background: var(--paper-dim);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 0.74rem;
+}
+.diag-block summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--night);
+  margin-bottom: 6px;
+}
+.diag-attempt { margin-bottom: 10px; }
+.diag-attempt p { font-size: 0.74rem; margin-bottom: 4px; }
+.diag-pre {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 0.66rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 140px;
+  overflow-y: auto;
+  margin: 0;
 }
 
 /* ---------------------------------------------------------- */
