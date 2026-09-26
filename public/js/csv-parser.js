@@ -10,9 +10,11 @@ function parseCSV(text) {
   let field = "";
   let inQuotes = false;
 
-  // Normalize line endings up front, but keep the parser newline-aware
-  // in case a quoted field legitimately contains one.
-  const src = text.replace(/\r\n/g, "\n");
+  // Google Sheets' CSV export prepends a UTF-8 BOM (\uFEFF). Left in place,
+  // it silently glues itself to the first header cell ("Date" becomes
+  // "\uFEFFDate"), which then fails every header match below and makes
+  // every row look unparseable. Strip it before anything else.
+  const src = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
 
   for (let i = 0; i < src.length; i++) {
     const char = src[i];
@@ -62,14 +64,23 @@ function parseCSV(text) {
 function rowsToHolidays(rows) {
   if (!rows.length) return [];
 
-  const header = rows[0].map((h) => h.trim().toLowerCase());
-  const idx = (names) => header.findIndex((h) => names.includes(h));
+  // Defensive normalize: trim, lowercase, and strip any stray BOM/invisible
+  // characters that can survive a copy-paste into a header cell.
+  const header = rows[0].map((h) =>
+    h.replace(/[\uFEFF\u200B]/g, "").trim().toLowerCase()
+  );
 
-  const dateIdx = idx(["date"]);
-  const nameIdx = idx(["holiday name", "name", "holiday"]);
-  const descIdx = idx(["description", "details", "significance"]);
-  const countryIdx = idx(["country", "countries", "region"]);
-  const typeIdx = idx(["type", "category"]);
+  // Substring matching instead of exact matching: tolerates real-world
+  // header variations like "Holiday Name", "Name of holiday", "Event",
+  // "Country / Region", "Category", etc.
+  const findCol = (keywords) =>
+    header.findIndex((h) => keywords.some((k) => h.includes(k)));
+
+  const dateIdx = findCol(["date"]);
+  const nameIdx = findCol(["holiday name", "holiday", "event", "name", "title"]);
+  const descIdx = findCol(["description", "detail", "significance", "about", "summary"]);
+  const countryIdx = findCol(["country", "region", "nation"]);
+  const typeIdx = findCol(["type", "categor"]);
 
   const holidays = [];
 

@@ -103,6 +103,18 @@
 
     if (!text) throw new Error("Could not load holiday data.");
 
+    const trimmed = text.trim();
+    if (trimmed.startsWith("<!DOCTYPE") || trimmed.startsWith("<html")) {
+      throw new Error(
+        "The data source returned a webpage instead of CSV data — the Google Sheet may not be published, or the link may have changed. In Google Sheets, check File → Share → Publish to web is still active for this sheet/tab."
+      );
+    }
+
+    console.info(
+      "[Cultural Compass] Loaded CSV, first 200 chars:",
+      trimmed.slice(0, 200)
+    );
+
     const rows = parseCSV(text);
     return rowsToHolidays(rows);
   }
@@ -679,20 +691,37 @@
     try {
       const list = await loadHolidays();
       indexHolidays(list);
+
+      if (!list.length) {
+        console.warn(
+          "[Cultural Compass] The CSV loaded but 0 holiday rows were recognized. " +
+          "Open the Network tab, inspect the /api/holidays response, and confirm " +
+          "it has Date / Holiday Name / Description / Country / Type columns " +
+          "(header names can vary, but each column needs a recognizable keyword)."
+        );
+        el.splash.innerHTML = `
+          <div class="splash-error">
+            <p>Connected to your calendar feed, but couldn't find any holiday rows in it.</p>
+            <p style="font-size:0.8rem;opacity:0.7;">This usually means the sheet's column headers don't match what the app expects (Date, Holiday Name, Description, Country, Type), or the published sheet is empty for this tab.</p>
+            <button id="retry-btn" class="btn-primary">Try again</button>
+          </div>`;
+        $("#retry-btn").addEventListener("click", () => location.reload());
+        return;
+      }
+
       renderTodayBanner();
       renderCalendar();
       el.splash.classList.add("is-hidden");
       setTimeout(() => el.splash.remove(), 500);
     } catch (err) {
+      console.error("[Cultural Compass] Failed to load holidays:", err);
       el.splash.innerHTML = `
         <div class="splash-error">
           <p>We couldn't load the holiday calendar.</p>
+          <p style="font-size:0.8rem;opacity:0.7;">${escapeHTML(err && err.message ? err.message : "Unknown error")}</p>
           <button id="retry-btn" class="btn-primary">Try again</button>
         </div>`;
-      $("#retry-btn").addEventListener("click", () => {
-        el.splash.innerHTML = document.getElementById("splash-skeleton-template").innerHTML;
-        init();
-      });
+      $("#retry-btn").addEventListener("click", () => location.reload());
     }
 
     if ("serviceWorker" in navigator) {
