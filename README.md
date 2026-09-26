@@ -85,5 +85,24 @@ wrangler dev
 - The Web Share API is used for sharing individual holidays and the app
   itself, with a clipboard-copy / WhatsApp-link fallback for browsers
   that don't support it (mainly desktop).
-- Replace `public/assets/og-image.svg` with a raster (PNG/JPG) version if
-  you need a platform that doesn't render SVG Open Graph images.
+- `public/assets/og-image.svg` is kept for reference/editing, but
+  `og:image` points at `og-image.png` — WhatsApp's (and most other
+  crawlers') link-preview bots don't render SVG, only raster images, so
+  the meta tags use the PNG along with explicit `og:image:width` /
+  `og:image:height`. The same applies to `apple-touch-icon.png` and the
+  PNG entries in `manifest.webmanifest` — SVG icons are kept as a
+  fallback for the browsers that do support them.
+
+## If a WhatsApp/social preview still doesn't show after deploying
+
+Link-preview crawlers cache aggressively per URL. After you deploy (or
+change the OG image), force a re-scrape rather than waiting:
+
+1. Confirm the image loads directly and is public:
+   `https://global-holidays.suvadipchakraborty.workers.dev/assets/og-image.png`
+2. Run the URL through Facebook's scraper (WhatsApp shares its cache with
+   it): https://developers.facebook.com/tools/debug/ → paste the URL →
+   "Scrape Again".
+3. On WhatsApp specifically, the preview can also stay stale on a chat
+   where you've shared the link before — try sending it to a chat/number
+   you haven't shared it with yet to confirm the fix.

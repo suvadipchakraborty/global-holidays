@@ -6,7 +6,9 @@ const SHELL_FILES = [
   "/js/csv-parser.js",
   "/js/app.js",
   "/manifest.webmanifest",
+  "/favicon.ico",
   "/assets/icon.svg",
+  "/assets/icon-192.png",
 ];
 
 self.addEventListener("install", (event) => {
